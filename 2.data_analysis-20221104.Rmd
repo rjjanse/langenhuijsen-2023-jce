@@ -1,0 +1,1679 @@
+---
+title: "Risk of Bias in prediction modelling"
+author: "Roemer J. Janse"
+date: "`r Sys.Date()`"
+output:
+  word_document: 
+    toc: yes
+    toc_depth: 6
+    fig_width: 4
+    fig_height: 3
+---
+
+# 0. Set-up
+```{r setup, include=FALSE}
+# Set knitr options
+knitr::opts_chunk$set(echo = FALSE, evaluate = TRUE, tidy = TRUE, cache = FALSE, autodep = TRUE, 
+                      warning = FALSE, message = FALSE, out.width = '800px', dpi = 600,
+                      root.dir ="C:/Users/rjjanse/OneDrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/codes/results/")
+
+# Load packages
+pacman::p_load("dplyr",      # Data manipulation
+               "magrittr",   # Efficient piping
+               "tidyr",      # Data tidying
+               "ggplot2",    # Data visualization
+               "cowplot",    # Data viz. add-on
+               "pammtools",  # Data viz. add-on
+               "writexl",    # Export data to Excel
+               "readxl",     # Read data from Excel
+               "stringr",    # String manipulation
+               "psych",      # Cohen's Kappa cross-check
+               "knitr",      # Kabling tables & knitting doc
+               "fANCOVA"     # Determine LOESS span
+)
+
+# Set data path
+path <- "C:/Users/rjjanse/OneDrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/codes/dataframes/"
+     
+# Load data
+load(paste0(path, "dat_main.Rdata")); load(paste0(path, "dat_sq.Rdata")); load(paste0(path, "dat_dom.Rdata"))
+
+```
+
+# 1. Basic number calculations
+```{r basic nrs, eval=FALSE, include=FALSE}
+# Total reviews included
+message(paste0("Total included studies: ", length(unique(dat.main[["id"]]))))
+
+# Total reviews with extractable data
+message(paste0("Total studies with extractable data: ", table(dat.main[["extr_data"]])[["1"]]))
+
+# Of reviews with extractable data, amount of studies with individual SQs
+message(paste0("Extractable studies with individual SQs level information: ", filter(dat.main, extr_data == 1) %>% .[["available_level"]] %>% table() %>% .[["1"]]))
+
+# Of reviews with extractable data, amount of studies wtih domain
+message(paste0("Extractable studies with domain level information: ", filter(dat.main, extr_data == 1) %>% .[["available_level"]] %>% table() %>% .[["2"]]))
+
+# Reviews without extractable data
+message(paste0("Reviews without extractable data: ", table(dat.main[["extr_data"]])[["0"]]))
+
+# Reviews without extractable data that provided data by email
+message(paste0("Authors of papers without extractable data who provided extractable results upon email: ", 
+               filter(dat.main, extr_data == 0) %>% .[["react_type"]] %>% table() %>% .[["1"]]))
+
+# Reviews with domain data that provided data by email
+message(paste0("Authors of papers with domain extractable data who provided extractable results upon email: ",
+               filter(dat.main, extr_data == 0 & available_level == 2) %>% .[["react_type"]] %>% table() %>% .[["1"]]))
+
+# Total studies with individual SQs
+message(paste0("Total studies included with data on individual SQs: ", table(dat.main[["added_level"]])[["1"]]))
+
+# Total studies with domain
+message(paste0("Total studies included with data on domain: ", table(dat.main[["added_level"]])[["2"]]))
+
+```
+
+# 2. Trends over time with LOESS
+```{r loess}
+# Set working direction to figures
+setwd("C:/Users/rjjanse/OneDrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/figures")
+
+# Create data frame with key publication information
+# Second 2018-10-22 is actually 2018-10-24, but for data viz changed to 22
+dat.kpb <- data.frame(dt_pub = c("1996-02-01", "2001-01-01", "2005-08-17", "2008-01-01", "2009-02-01", "2009-02-01", "2009-02-01", "2009-02-01", "2010-01-01", 
+                                 "2012-03-07", "2012-03-07", "2012-05-29", "2013-02-05", "2013-02-05", "2013-02-05", "2013-02-05", "2015-01-01", "2015-01-01", 
+                                 "2015-01-01", "2018-08-01", "2018-08-01", "2019-01-01", "2019-01-01", "2019-01-01", "2019-01-01", "2014-06-04", "2020-03-01", 
+                                 "2018-10-22", "2017-01-05"), 
+                      series = c("Key paper", "Textbook Harrel", "REMARK", "Textbook Steyerberg", rep("BMJ series", 4), "Key paper", "Heart series", "Heart series", 
+                                 "REMARK", rep("PROGRESS", 4), "TRIPOD (elaboration)", "TRIPOD (short)", "Textbook Harrel", "REMARK", "REMARK", "Textbook Riley", 
+                                 "PROBAST (short)", "PROBAST (elaboration)", "Textbook Steyerberg", rep("Key paper", 4)),
+                      cites = c(8280, 14465, NA, 4235, 908, 1278, 1404, 1166, 3606, 804, 901, NA, 463, 545, 643, 1116, 2761, 5129, 14465, 266, 2074, 151, 481, 736, 
+                                4235, 1129, 465, 500, 293),
+                      cites_py = c(309, 662, 106, 285, 66, 93, 102, 85, 281, 75, 84, 97, 47, 56, 66, 114, 352, 653, 1843, 62, 486, 39, 125, 191, 1101, 134, 173, 126, 51))
+
+# Further clean up data
+dat.kpb <- dat.kpb %>%
+    # Change class of dt_pub to date    
+    mutate(dat.kpb, dt_pub = as.Date(dt_pub, origin = "1970-01-01")) %>%
+    # Sort on dt_pub
+    arrange(dt_pub) %>%
+    # Group on dt_pub
+    group_by(dt_pub) %>%
+    # Calculate new variables
+    mutate(cites = sum(cites),             # Total cites
+           cites_py = sum(cites_py)) %>%   # Total cites per year
+    # Keep one row per date
+    slice(1L) %>%
+    # Ungroup again
+    ungroup() %>%
+    # Drop series variable
+    dplyr::select(-series) %>%
+    # Create new variables
+    mutate(cites_py_chr = paste0(prettyNum(cites_py, big.mark = ","), " cites/y"),   # Cites per year as character
+           ratio = cites_py / max(cites_py))                                         # Variable for size and opacity of lines
+ 
+# Prepare data for plot
+dat.plt <- 
+    # Bind domain and signalling question data together
+    rbind(
+        # Take only useful variables from domain data
+        dplyr::select(dat.dom, wrs_doi, wrs_pmid, dt_study, d1:d4) %>% 
+            # Create indicator that these are domain level only studies
+            mutate(src = "dom"),
+        # Take only useful data from signal question data
+        dplyr::select(dat.sq, wrs_doi, wrs_pmid, dt_study, d1, d2, d3, d4) %>%
+            # Create indicator that these are signalling question level studies
+            mutate(src = "sq")) %>%
+    # Keep only one version of each within-review study (wrs), based on doi, pmid, and date
+    distinct(wrs_doi, wrs_pmid, dt_study, .keep_all = TRUE) %>%
+    # Change domain scores to long format
+    pivot_longer(d1:d4, names_to = "domain") %>%
+    # Remove missing dates
+    filter(!is.na(dt_study))
+
+# Create function for plot
+p.loess <- function(df, lower_x = as.Date("2000-01-01"), upper_x = as.Date("2021-12-31"), breaks = "3 years", type = c("ds", "d", "s")){
+    # Select data based on type
+    if(type == "d"){
+        dat.tmp <- filter(df, src == "dom")
+        subttl <- "Only studies with data available on domain level"
+    }
+    
+    if(type == "s"){
+        dat.tmp <- filter(df, src == "sq")
+        subttl <- "Only studies with data available on signalling question level"
+    }
+    
+    if(type == "ds"){
+        dat.tmp <- df
+        subttl <- "All studies"
+    }
+    
+    # Remove missings in dataframe
+    dat.tmp <- filter(dat.tmp, !is.na(value))
+    
+    # If lower_x is NULL, use lowest in data
+    if(is.null(lower_x)){
+        lower_x <- min(dat.tmp[["dt_study"]])
+        breaks <- "4 years"
+        breaks_seq <- as.numeric(gsub(" years", "", breaks))
+        lower_lab <- as.numeric(format(lower_x, "%Y"))
+    }
+    
+    # Otherwise, define lower date
+    else{
+        breaks_seq <- as.numeric(gsub(" years", "", breaks))
+        lower_lab <- as.numeric(format(lower_x, "%Y"))
+        
+        # Limit data to lowest year included
+        dat.tmp <- filter(dat.tmp, dt_study >= lower_x)
+        
+        # Also limit key publication data
+        dat.kpb <- filter(dat.kpb, dt_pub >= lower_x) 
+    }
+    
+     # If upper_x is NULL, use latest observed date
+    if(is.null(upper_x)){
+        upper_x <- max(dat.plt[["dt_study"]], na.rm = TRUE)
+        upper_lab <- as.numeric(format(upper_x, "%Y"))
+    }
+    
+    # Otherwise, define upper date
+    else{
+        # Define upper lab
+        upper_lab <- as.numeric(format(upper_x, "%Y"))
+        
+        # Limit data to highest year included
+        dat.tmp <- filter(dat.tmp, dt_study <= upper_x)
+        
+        # Also limit key publication data
+        dat.kpb <- filter(dat.kpb, dt_pub <= upper_x) 
+    }
+    
+    # Add variable for footnote annotation
+    dat.kpb <- mutate(dat.kpb, footnote = tolower(LETTERS[1:length(unique(dat.kpb[["dt_pub"]]))]))
+        
+    # Get LOESS span with generalized cross-validation (following https://www.r-bloggers.com/2016/02/automated-parameter-selection-for-loess-regression/)
+    span <- loess.as(dat.tmp[["dt_study"]], dat.tmp[["value"]], criterion = "gcv")[["pars"]][["span"]]
+    
+    # Print used span
+    print(paste0("LOESS fit with span ", round(span, 3)))
+    
+    # Determine text size
+    txtsize <- 13
+    
+    # Start creating plot
+    p <- ggplot(data = dat.tmp, aes(x = dt_study, y = value)) + 
+        # Geometries
+        geom_point(colour = "grey", alpha = 0.25) +
+        geom_smooth(method = "loess", colour = "#3C6E71", fill = "#3C6E71", span = span) +
+        # Commented out due to preference for bar chart
+        # lapply(1:15, \(x){geom_vline(xintercept = dat.kpb[[x, "dt_pub"]], linetype = "dashed", colour = "#01161E", alpha = dat.kpb[[x, "ratio"]])}) + || 
+        # Mutations
+        facet_grid(rows = vars(domain), labeller = as_labeller(c("d1" = paste0("Predictors (n = ", 
+                                                                               prettyNum(table(dat.tmp[["domain"]])[["d1"]], ","), ")"),
+                                                                 "d2" = paste0("Participants (n = ", 
+                                                                               prettyNum(table(dat.tmp[["domain"]])[["d2"]], ","), ")"),
+                                                                 "d3" = paste0("Outcomes (n = ", 
+                                                                               prettyNum(table(dat.tmp[["domain"]])[["d3"]], ","), ")"),
+                                                                 "d4" = paste0("Analysis (n = ",
+                                                                               prettyNum(table(dat.tmp[["domain"]])[["d4"]], ","), ")")))) +
+        # Scaling
+        scale_y_continuous(breaks = 0:2, labels = c("Low", "Unclear", "High"), expand = expansion(add = c(0.1, 0.1))) +
+        scale_x_date(limits = c(lower_x, upper_x),
+                     breaks = seq(lower_x, upper_x, by = breaks),
+                     labels = seq(lower_lab, upper_lab, breaks_seq), expand = c(0, 0)) +
+        # Labels
+        labs(title = paste0("Trends in risk of bias between ", lower_lab, " and ", upper_lab, " as assessed with the PROBAST"), subtitle = subttl) + 
+        ylab("Risk of bias") +
+        # Aesthetics
+        theme(plot.title = element_text(face = "bold", hjust = 0.5, size = txtsize),
+              plot.subtitle = element_text(face = "italic", hjust = 0.5, size = txtsize),
+              panel.background = element_blank(),
+              panel.grid = element_blank(),
+              axis.title.x = element_blank(),
+              axis.text.x = element_text(hjust = 0.2),
+              axis.text = element_text(size = txtsize),
+              axis.title.y = element_text(size = txtsize),
+              strip.text = element_text(size = txtsize)) +
+        panel_border(colour = "black")
+    
+    # Create plot for citations
+    c <- ggplot(data = dat.kpb, aes(x = dt_pub, y = cites_py)) +
+        # Geometries
+        geom_histogram(stat = "identity", fill = "#3C6E71", binwidth = 1, width = 15) +
+        annotate("text", x = dat.kpb[["dt_pub"]], y = dat.kpb[["cites_py"]] + 250, label = dat.kpb[["footnote"]]) +
+        # Scaling
+        scale_y_continuous(limits = c(0, 3500), breaks = seq(0, 3500, 1000), labels = prettyNum(seq(0, 3500, 1000), ","), expand = c(0, 0)) +
+        scale_x_date(limits = c(lower_x, max(dat.plt[["dt_study"]], na.rm = TRUE)),
+                     breaks = seq(lower_x, max(dat.plt[["dt_study"]], na.rm = TRUE), by = breaks),
+                     labels = seq(lower_lab, 2022, breaks_seq), expand = c(0, 0)) +
+        # Labels
+        xlab("Date of publication") + ylab("Average cites per year") +
+        # Aesthetics
+        theme(plot.title = element_text(face = "bold", hjust = 0.5),
+              plot.subtitle = element_text(face = "italic", hjust = 0.5),
+              panel.background = element_blank(),
+              panel.grid = element_blank(),
+              axis.text.x = element_text(hjust = 0.2),
+              axis.text = element_text(size = txtsize),
+              axis.title = element_text(size = txtsize)) +
+        panel_border(colour = "black")
+    
+    # Combine plots
+    plt.fin <- plot_grid(p, c, align = "hv", axis = "tblr", ncol = 1, rel_heights = c(5, 1))
+
+    # Return plot
+    return(plt.fin)
+}
+    
+## Create figures
+# All-time combined domain SQ
+ggsave("main_timetrends_all_ds.png", plot = p.loess(dat.plt, lower_x = NULL, type = "ds"), width = 15, height = 15, dpi = 600) # span = 0.100
+
+# All-time only domain
+ggsave("main_timetrends_all_d.png", plot = p.loess(dat.plt, lower_x = NULL, type = "d"), width = 15, height = 15, dpi = 600) # span = 0.157
+
+# All-time only single questions
+ggsave("main_timetrends_all_s.png", plot = p.loess(dat.plt, lower_x = NULL, type = "s"), width = 15, height = 15, dpi = 600) # span = 0.469
+
+# Limited time combined domain SQ
+ggsave("main_timetrends_lim_ds.png", plot = p.loess(dat.plt, type = "ds"), width = 15, height = 15, dpi = 600) # span = 0.066
+
+# Limited time only domain
+ggsave("main_timetrends_lim_d.png", plot = p.loess(dat.plt, type = "d"), width = 15, height = 15, dpi = 600) # span = 0.156
+
+# Limited time only single questions
+ggsave("main_timetrends_lim_s.png", plot = p.loess(dat.plt, type = "s"), width = 15, height = 15, dpi = 600) # span = 0.447
+
+```
+
+# 3. Stacked barchart ROB over the years
+```{r}
+# Set working direction to figures
+setwd("C:/Users/rjjanse/OneDrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/figures")
+
+# Prepare data for plot
+dat.plt <- 
+    # Bind domain and signalling question data together
+    rbind(
+        # Take only useful variables from domain data
+        dplyr::select(dat.dom, wrs_doi, wrs_pmid, dt_study, d1:d4) %>% 
+            # Create indicator that these are domain level only studies
+            mutate(src = "dom"),
+        # Take only useful data from signal question data
+        dplyr::select(dat.sq, wrs_doi, wrs_pmid, dt_study, d1, d2, d3, d4) %>%
+            # Create indicator that these are signalling question level studies
+            mutate(src = "sq")) %>%
+    # Keep only one version of each within-review study (wrs), based on doi, pmid, and date
+    distinct(wrs_doi, wrs_pmid, dt_study, .keep_all = TRUE) %>%
+    # Change domain scores to long format
+    pivot_longer(d1:d4, names_to = "domain") %>%
+    # Remove missing dates
+    filter(!is.na(dt_study)) %>%
+    # Change variables
+    mutate(year = as.numeric(format(dt_study, "%Y")),                                    # Change date to year only
+           val = factor(value, levels = 2:0, labels = c("High", "Unclear", "Low"))) %>%  # Change value to categorical
+    # Limit data to end 2021
+    filter(dt_study <= as.Date("2021-12-31"))
+
+# Create function for plot
+p.sbc <- function(df, lower_x = 2000, type = c("ds", "d", "s")){
+    # Select data based on type
+    if(type == "d"){
+        dat.tmp <- filter(df, src == "dom")
+        subttl <- "Only studies with data available on domain level"
+    }
+    
+    if(type == "s"){
+        dat.tmp <- filter(df, src == "sq")
+        subttl <- "Only studies with data available on signalling question level"
+    }
+    
+    if(type == "ds"){
+        dat.tmp <- df
+        subttl <- "All studies"
+    }
+    
+    # Remove missings in dataframe
+    dat.tmp <- filter(dat.tmp, !is.na(value))
+    
+    # Determine size of text
+    txtsize <- 13
+    
+    if(is.null(lower_x)){
+        # If lower_x is NULL, use lowest in data
+        if(is.null(lower_x)){
+            lower_x <- min(dat.tmp[["year"]])
+        }
+        
+        # Start creating plot
+        p <- ggplot(data = dat.tmp, aes(x = year, y = 1, fill = val)) + 
+            # Geometries
+            geom_bar(position = "fill", stat = "identity") +
+            # Mutations
+            facet_wrap(facets = vars(domain), labeller = as_labeller(c("d1" = paste0("Predictors (n = ", 
+                                                                                     prettyNum(table(dat.tmp[["domain"]])[["d1"]], ","), ")"),
+                                                                       "d2" = paste0("Participants (n = ", 
+                                                                                     prettyNum(table(dat.tmp[["domain"]])[["d2"]], ","), ")"),
+                                                                       "d3" = paste0("Outcomes (n = ", 
+                                                                                     prettyNum(table(dat.tmp[["domain"]])[["d3"]], ","), ")"),
+                                                                       "d4" = paste0("Analysis (n = ",
+                                                                                     prettyNum(table(dat.tmp[["domain"]])[["d4"]], ","), ")"))),
+                       ncol = 2, nrow = 2) +
+        # Scaling
+        scale_y_continuous(breaks = seq(0, 1, 0.1), labels = seq(0, 100, 10), expand = c(0, 0)) +
+        scale_x_continuous(limits = c(lower_x - 1, 2022),
+                           breaks = seq(lower_x, 2021, by = 1),
+                           labels = seq(lower_x, 2021, 1), expand = c(0, 0)) +
+        scale_fill_manual(values = c("#6A0136", "#EE8434", "#3C6E71")) +
+        # Labels
+        labs(title = paste0("Trends in risk of bias between ", lower_x, " and 2022 as assessed with the PROBAST"), subtitle = subttl) + 
+        xlab("Year") + ylab("Proportion (%)") + guides(fill = guide_legend("Risk of bias")) +
+        # Aesthetics
+        theme(plot.title = element_text(face = "bold", hjust = 0.5, size = txtsize),
+              plot.subtitle = element_text(face = "italic", hjust = 0.51, size = txtsize),
+              panel.background = element_blank(),
+              panel.grid = element_blank(),
+              axis.text.x = element_text(angle = 90, vjust = 0.5),
+              strip.text = element_text(size = txtsize),
+              axis.title = element_text(size = txtsize),
+              axis.text = element_text(size = txtsize - 1),
+              legend.position = "bottom") +
+        panel_border(colour = "black")
+    }
+        
+    else{
+        # Limit data to lowest x
+        dat.tmp <- filter(dat.tmp, year >= lower_x)
+        
+        # Start creating plot
+        p <- ggplot(data = dat.tmp, aes(x = year, y = 1, fill = val)) + 
+            # Geometries
+            geom_bar(position = "fill", stat = "identity") +
+            # Mutations
+            facet_grid(cols = vars(domain), labeller = as_labeller(c("d1" = paste0("Predictors (n = ", 
+                                                                                   prettyNum(table(dat.tmp[["domain"]])[["d1"]], ","), ")"),
+                                                                     "d2" = paste0("Participants (n = ", 
+                                                                                   prettyNum(table(dat.tmp[["domain"]])[["d2"]], ","), ")"),
+                                                                     "d3" = paste0("Outcomes (n = ", 
+                                                                                   prettyNum(table(dat.tmp[["domain"]])[["d3"]], ","), ")"),
+                                                                     "d4" = paste0("Analysis (n = ",
+                                                                                   prettyNum(table(dat.tmp[["domain"]])[["d4"]], ","), ")")))) +
+        # Scaling
+        scale_y_continuous(breaks = seq(0, 1, 0.1), labels = seq(0, 100, 10), expand = c(0, 0)) +
+        scale_x_continuous(limits = c(lower_x - 1, 2022),
+                           breaks = seq(lower_x, 2021, by = 1),
+                           labels = seq(lower_x, 2021, 1), expand = c(0, 0)) +
+        scale_fill_manual(values = c("#6A0136", "#EE8434", "#3C6E71")) +
+        # Labels
+        labs(title = paste0("Trends in risk of bias between ", lower_x, " and 2022 as assessed with the PROBAST"), subtitle = subttl) + 
+        xlab("Year") + ylab("Proportion (%)") + guides(fill = guide_legend("Risk of bias")) +
+        # Aesthetics
+        theme(plot.title = element_text(face = "bold", hjust = 0.5, size = txtsize),
+              plot.subtitle = element_text(face = "italic", hjust = 0.51, size = txtsize),
+              panel.background = element_blank(),
+              panel.grid = element_blank(),
+              axis.text.x = element_text(angle = 90, vjust = 0.5),
+              strip.text = element_text(size = txtsize),
+              axis.title = element_text(size = txtsize),
+              axis.text = element_text(size = txtsize - 1),
+              legend.position = "bottom") +
+        panel_border(colour = "black")
+    }
+    
+    # Return plot
+    return(p)
+}
+
+## Create figures
+# All-time combined domain SQ
+ggsave("sbc_all_ds.png", plot = p.sbc(dat.plt, lower_x = NULL, type = "ds"), width = 17, height = 7, dpi = 600) 
+
+# All-time only domain
+ggsave("sbc_all_d.png", plot = p.sbc(dat.plt, lower_x = NULL, type = "d"), width = 17, height = 7, dpi = 600)
+
+# All-time only single questions
+ggsave("sbc_all_s.png", plot = p.sbc(dat.plt, lower_x = NULL, type = "s"), width = 17, height = 7, dpi = 600)
+
+# Limited time combined domain SQ
+ggsave("sbc_lim_ds.png", plot = p.sbc(dat.plt, type = "ds"), width = 17, height = 7, dpi = 600)
+
+# Limited time only domain
+ggsave("sbc_lim_d.png", plot = p.sbc(dat.plt, type = "d"), width = 17, height = 7, dpi = 600)
+
+# Limited time only single questions
+ggsave("sbc_lim_s.png", plot = p.sbc(dat.plt, type = "s"), width = 17, height = 7, dpi = 600)
+
+```
+
+# 4. Stacked barchart overall
+```{r}
+# Set working direction to figures
+setwd("C:/Users/rjjanse/OneDrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/figures")
+
+# Prepare data for plot
+dat.plt <- 
+    # Bind domain and signalling question data together
+    rbind(
+        # Take only useful variables from domain data
+        dplyr::select(dat.dom, wrs_doi, wrs_pmid, dt_study, d1:d4) %>% 
+            # Create indicator that these are domain level only studies
+            mutate(src = "dom"),
+        # Take only useful data from signal question data
+        dplyr::select(dat.sq, wrs_doi, wrs_pmid, dt_study, d1, d2, d3, d4) %>%
+            # Create indicator that these are signalling question level studies
+            mutate(src = "sq")) %>%
+    # Keep only one version of each within-review study (wrs), based on doi, pmid, and date
+    distinct(wrs_doi, wrs_pmid, dt_study, .keep_all = TRUE) %>%
+    # Change domain scores to long format
+    pivot_longer(d1:d4, names_to = "domain") %>%
+    # Remove missing dates
+    filter(!is.na(dt_study)) %>%
+    # Limit data to end 2021
+    filter(dt_study <= as.Date("2021-12-31")) %>%
+    # Change variables
+    mutate(year = as.numeric(format(dt_study, "%Y"))) # Change date to year only
+ 
+# Create function for plot
+p.sbc <- function(df, lower_x = 2000, type = c("ds", "d", "s")){
+    # Select data based on type
+    if(type == "d"){
+        dat.tmp <- filter(df, src == "dom")
+        subttl <- "Only studies with data available on domain level"
+    }
+    
+    if(type == "s"){
+        dat.tmp <- filter(df, src == "sq")
+        subttl <- "Only studies with data available on signalling question level"
+    }
+    
+    if(type == "ds"){
+        dat.tmp <- df
+        subttl <- "All studies"
+    }
+    
+    # Remove missings in dataframe
+    dat.tmp <- filter(dat.tmp, !is.na(value))
+    
+    # If lower_x is NULL, use lowest in data
+    if(is.null(lower_x)){
+        lower_x <- min(dat.tmp[["year"]])
+    }
+    
+    # If lower_x isn't NULL, limit data to lowest x
+    else{
+        dat.tmp <- filter(dat.tmp, year >= lower_x)
+    }
+    
+    # Finish data for plot
+    dat.tmp <- dat.tmp %>% 
+        # Count unique values over groups
+        count(domain, value) %>%
+        # Group on domain
+        group_by(domain) %>%
+        # Create variables
+        mutate(prop = prop.table(n) * 100,                                                 # Add percentages
+               value = factor(value, levels = 2:0, labels = c("High", "Unclear", "Low")))  # Change value to factor
+    
+    # Start creating plot
+    p <- ggplot(data = dat.tmp, aes(x = domain, y = prop, fill = value)) + 
+        # Geometries
+        geom_bar(stat = "identity") +
+        geom_label(aes(label = paste0(prettyNum(n, ","), " (", format(round(prop, 1), nsmall = 1), "%)")), 
+                   position = position_stack(vjust = 0.5), colour = "black", fill = "lightgrey") +
+        # Scaling
+        scale_y_continuous(breaks = seq(0, 100, 10), labels = seq(0, 100, 10), expand = c(0, 0)) +
+        scale_x_discrete(labels = c("Predictors", "Participants", "Outcomes", "Analysis"), expand = c(0, 0)) +
+        scale_fill_manual(values = c("#6A0136", "#EE8434", "#3C6E71")) +
+        # Labels
+        labs(title = paste0("Trends in risk of bias between ", lower_x, " and 2021 as assessed with the PROBAST"), subtitle = subttl) + 
+        xlab("Domain") + ylab("Proportion (%)") + guides(fill = guide_legend("Risk of bias")) +
+        # Aesthetics
+        theme(plot.title = element_text(face = "bold", hjust = 0.5),
+              plot.subtitle = element_text(face = "italic", hjust = 0.51),
+              axis.line.x = element_line(),
+              axis.line.y = element_line(),
+              panel.background = element_blank(),
+              panel.grid = element_blank(),
+              legend.position = "bottom") 
+    
+    # Return plot
+    return(p)
+}
+
+## Create figures
+# All-time combined domain SQ
+ggsave("overall_sbc_all_ds.png", plot = p.sbc(dat.plt, lower_x = NULL, type = "ds"), width = 7, height = 7, dpi = 600) 
+
+# All-time only domain
+ggsave("overall_sbc_all_d.png", plot = p.sbc(dat.plt, lower_x = NULL, type = "d"), width = 7, height = 7, dpi = 600)
+
+# All-time only single questions
+ggsave("overall_sbc_all_s.png", plot = p.sbc(dat.plt, lower_x = NULL, type = "s"), width = 7, height = 7, dpi = 600)
+
+# Limited time combined domain SQ
+ggsave("overall_sbc_lim_ds.png", plot = p.sbc(dat.plt, type = "ds"), width = 7, height = 7, dpi = 600)
+
+# Limited time only domain
+ggsave("overall_sbc_lim_d.png", plot = p.sbc(dat.plt, type = "d"), width = 7, height = 7, dpi = 600)
+
+# Limited time only single questions
+ggsave("overall_sbc_lim_s.png", plot = p.sbc(dat.plt, type = "s"), width = 7, height = 7, dpi = 600)
+
+```
+
+# 5. Between-rater variablity
+```{r}
+# ## First we perform a check of all duplicate DOIs & PMIDs are indeed all studied in the same way (e.g., not only external validation part in one review and whole study 
+# ## in another review)
+# # SQ level
+# dat.sq.check <- dat.sq %>%
+#     # Remove no DOI/PMID
+#     filter(wrs_pmid != "NO DOI/PMID" | is.na(wrs_pmid)) %>%
+#      # Change and create variables
+#     mutate(wrs_pmid = as.numeric(wrs_pmid),                                      # Change PMID to numeric
+#            wrs_identifier = ifelse(!is.na(wrs_doi), wrs_doi, wrs_pmid)) %>%      # Combine DOI and PMID
+#     # Arrange on study identifiers
+#     arrange(wrs_identifier) %>%
+#     # Keep only relevant variables
+#     dplyr::select(id, year, author, title, doi, wrs_author, wrs_year, wrs_doi, wrs_pmid, wrs_identifier, model_id, sq11:d4) %>%
+#     # Group on identifier
+#     group_by(wrs_identifier) %>%
+#     # Create variable for max count
+#     mutate(wrs_id_count = max(row_number())) %>%        
+#     # Ungroup again
+#     ungroup() %>%
+#     # Keep only rows with multiple PMIDs or DOIs
+#     filter(wrs_id_count >= 2) %>%
+#     # Keep only relevant variables
+#     dplyr::select(model_id, wrs_identifier, wrs_author, wrs_year, id, doi, year, author, title, sq11:d4) %>%
+#     # Arrange on study identifiers and then dtitle of reviews
+#     arrange(wrs_identifier, title) %>%
+#     # Group on identifiers
+#     group_by(wrs_identifier) %>%
+#     # Count number of different reviews
+#     mutate(n_reviews = length(unique(title))) %>%
+#     # Ungroup again
+#     ungroup() %>%
+#     # Keep only identifiers with more than one unique review
+#     filter(n_reviews >= 2)
+# 
+# # Add empty row between each wrs_identifier
+# dat.sq.check <- lapply(unique(dat.sq.check[["wrs_identifier"]]), \(x){
+#     rbind(# Take all rows of identifier
+#           filter(dat.sq.check, wrs_identifier == x),
+#           # Create empty row
+#           data.frame(model_id = "",
+#                      wrs_identifier = "",
+#                      wrs_author = "",
+#                      wrs_year = "",
+#                      id = "",
+#                      doi = "",
+#                      year = "",
+#                      author = "",
+#                      title = "",
+#                      sq11 = "",
+#                      sq12 = "",
+#                      sq21 = "",
+#                      sq22 = "",
+#                      sq23 = "",
+#                      sq31 = "",
+#                      sq32 = "",
+#                      sq33 = "",
+#                      sq34 = "",
+#                      sq35 = "",
+#                      sq36 = "",
+#                      sq41 = "",
+#                      sq42 = "",
+#                      sq43 = "",
+#                      sq44 = "",
+#                      sq45 = "",
+#                      sq46 = "",
+#                      sq47 = "",
+#                      sq48 = "",
+#                      sq49 = "",
+#                      d1_low = "",
+#                      d1_unclear = "",
+#                      d1_high = "",
+#                      d1 = "",
+#                      d2_low = "",
+#                      d2_unclear = "",
+#                      d2_high = "",
+#                      d2 = "",
+#                      d3_low = "",
+#                      d3_unclear = "",
+#                      d3_high = "",
+#                      d3 = "",
+#                      d4_low = "",
+#                      d4_unclear = "",
+#                      d4_high = "",
+#                      d4 = "",
+#                      n_reviews = "")
+#     )
+# })
+# 
+# # Add list together
+# dat.sq.check <- do.call("rbind", dat.sq.check)
+# 
+# # Write data to Excel to start checking
+# write_xlsx(dat.sq.check, path = "C:/Users/rjjanse/OneDrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/sheets/irv_sq.xlsx")
+# 
+# # Domain level
+# dat.dom.check <- dat.dom %>%
+#     # Remove no DOI/PMID
+#     filter(wrs_pmid != "NO DOI/PMID" | is.na(wrs_pmid)) %>%
+#      # Change and create variables
+#     mutate(wrs_pmid = as.numeric(wrs_pmid),                                      # Change PMID to numeric; one observation (PMC7204421) is coerced to NA but that is okay 
+#                                                                                  # because wasn't double
+#            wrs_identifier = ifelse(!is.na(wrs_doi), wrs_doi, wrs_pmid)) %>%      # Combine DOI and PMID
+#     # Arrange on study identifiers
+#     arrange(wrs_identifier) %>%
+#     # Keep only relevant variables
+#     dplyr::select(id, year, author, title, doi, wrs_author, wrs_year, wrs_doi, wrs_pmid, wrs_identifier, model_id, d1:d4) %>%
+#     # Group on identifier
+#     group_by(wrs_identifier) %>%
+#     # Create variable for max count
+#     mutate(wrs_id_count = max(row_number())) %>%        
+#     # Ungroup again
+#     ungroup() %>%
+#     # Keep only rows with multiple PMIDs or DOIs
+#     filter(wrs_id_count >= 2) %>%
+#     # Keep only relevant variables
+#     dplyr::select(model_id, wrs_identifier, wrs_author, wrs_year, id, doi, year, author, title, d1:d4) %>%
+#     # Arrange on study identifiers and then title of reviews
+#     arrange(wrs_identifier, title) %>%
+#     # Group on identifiers
+#     group_by(wrs_identifier) %>%
+#     # Count number of different reviews
+#     mutate(n_reviews = length(unique(title))) %>%
+#     # Ungroup again
+#     ungroup() %>%
+#     # Keep only identifiers with more than one unique review
+#     filter(n_reviews >= 2)
+# 
+# # Add empty row between each wrs_identifier
+# dat.dom.check <- lapply(unique(dat.dom.check[["wrs_identifier"]]), \(x){
+#     rbind(# Take all rows of identifier
+#           filter(dat.dom.check, wrs_identifier == x),
+#           # Create empty row
+#           data.frame(model_id = "",
+#                      wrs_identifier = "",
+#                      wrs_author = "",
+#                      wrs_year = "",
+#                      id = "",
+#                      doi = "",
+#                      year = "",
+#                      author = "",
+#                      title = "",
+#                      d1 = "",
+#                      d2 = "",
+#                      d3 = "",
+#                      d4 = "",
+#                      n_reviews = "")
+#     )
+# })
+# 
+# # Add list together
+# dat.dom.check <- do.call("rbind", dat.dom.check)
+# 
+# # Write data to Excel to start checking
+# write_xlsx(dat.dom.check, path = "C:/Users/rjjanse/OneDrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/sheets/irv_dom.xlsx")
+
+## SQ ----
+# Load checked duplicates
+#dat.irv.sq <- read_excel("C:/Users/rjjanse/Onedrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/sheets/Duplicates.xlsx", sheet = "SQ", skip = 3)
+dat.irv.sq <- read_excel("C:/Users/rjjanse/Onedrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/sheets/Duplicates.xlsx", sheet = "SQ", skip = 3)
+
+# Clean data
+dat.irv <- dat.irv.sq %>%
+    # Remove any white rows
+    filter(!is.na(model_id)) %>%
+    # Keep only studies that should be retained
+    filter(`Retain?` == "Yes") %>%
+    # Remove irrelevant columns
+    dplyr::select(-c(`Checked by:`, `Full-text`, FT, n_reviews)) %>%
+    # Remove model with wrong DOI: sq.586 
+    filter(model_id != "sq.586") %>%
+    # Some DOIs have two different models, noted in the Comment column with duplicate 1 and 2. Add the duplicate comment to the DOI to be able to differentiate
+    mutate(group = paste0(wrs_identifier, ifelse(grepl("Duplicate", Comment), paste0(" - ", str_extract(Comment, "Duplicate \\d")), ""))) %>%
+    # Remove other irrelevant columns
+    dplyr::select(-c(id:title)) %>%
+    # Arrange on group
+    arrange(group) %>%
+    # Group by group
+    group_by(group) %>%
+    # Calculate amount of rows per group
+    mutate(n_rows = max(row_number())) %>%
+    # Ungroup again
+    ungroup() %>%
+    # Filter any model with only one row
+    filter(n_rows != 1)
+
+# Numbers for results
+print(paste0("SQ studies included in two different reviews: ", (n <- length(unique(filter(dat.irv, n_rows == 2)[["group"]]))), " (", n, " possible pairs)"))
+print(paste0("SQ studies included in three different reviews: ", (n <- length(unique(filter(dat.irv, n_rows == 3)[["group"]]))), " (", n * choose(3, 2), " possible pairs)"))
+
+# Create function for transforming data and calculating Cohen's Kappa
+fun.kap <- function(var){
+    # Get a data frame for the variable of interest
+    dat.tmp <- dplyr::select(dat.irv, group, all_of(var), n_rows)
+   
+    ## For DOIs with more than two raters, we need to form all possible pairs, which the below code does
+    # Change data to one row for each group, with flexible amount of columns
+    dat.kap <- do.call("rbind", lapply(unique(dat.tmp[["group"]]), \(x){
+        # Transform data for identifier of interest
+        dat.kap <- dat.tmp %>%
+            # Keep only identifier of interest
+            filter(group == x) %>%
+            # Keep only values
+            dplyr::select(-c(group, n_rows)) %>%
+            # Transpose data
+            t()
+        
+        # If not enough columns, then add another column, based on max possible columns
+        if(ncol(dat.kap) != (maxrows <<- max(dat.tmp[["n_rows"]]))){
+            # Calculate how many columns are missing for succesful rbind
+            colmis <- maxrows - ncol(dat.kap)
+            
+            # Add that amount of missing columns
+            dat.kap <- cbind(dat.kap, t(rep(NA, colmis)))
+        }
+        
+        # Return data
+        return(dat.kap)
+    })) %>%
+        # Change to data frame
+        as.data.frame()
+    
+    # Change groups with more than two columns into each possible pair
+    dat.cmp.new <- do.call("rbind", lapply(1:nrow(dat.kap), \(x){
+        # Check if there are more columns than just the first two (can't check NA in just the third column as this might be general missing)
+        if(!(sum(is.na(dat.kap[x, 3:maxrows])) == length(dat.kap[x, 3:maxrows]))){
+            # Get current row
+            dat.tmp.lap <- dat.kap[x, ]
+            
+            # Get rows with each possible column comparison (except column 1 with column 2, as this is already in the data)
+            dat.cmp.all <- do.call("rbind", lapply(3:maxrows, \(x){
+                # Determine with which columns should be compared
+                comp_col <- c(1:(x - 1))
+                
+                # Define current column of interest
+                col <- x
+                
+                # Create comparison for each column for the given row. This gives all needed copmarisons
+                dat.cmp.row <- do.call("rbind", lapply(comp_col, \(x){
+                    # Create comparison for column
+                    comparison <- cbind(dat.tmp.lap[, x], dat.tmp.lap[, col])
+                })) %>%
+                    # Transform to data frame
+                    as.data.frame()
+            })) %>%
+                # Transform to data frame
+                as.data.frame()
+        }
+    })) %>%
+        # Change to data frame
+        as.data.frame()
+    
+    # Finalize data
+    dat.kap <- 
+        # Add together current comparison and new comparisons
+        rbind(
+            # Current data
+            dat.kap %>%
+                # Keep only first two rows
+                dplyr::select(V1, V2),
+            # New data
+            dat.cmp.new
+        )
+    
+    ## Start calculating Cohen's Kappa        
+    # Remove NAs from data
+    dat.tmp <- na.omit(dat.kap)
+    
+    # Number of rows
+    n <- nrow(dat.tmp)
+    
+    # For each row in the data check if raters agree
+    checks <- unlist(lapply(1:n, \(x){length(unique(as.numeric(dat.tmp[x, ]))) == 1}))
+    
+    ## Calculate probability of agreeing by chance 
+    # Probability of saying 0
+    p0 <- (sum(dat.tmp[, 1] == 0) / n) * (sum(dat.tmp[, 2] == 0) / n)
+    
+    # Probability of saying 1
+    p1 <- (sum(dat.tmp[, 1] == 1) / n) * (sum(dat.tmp[, 2] == 1) / n)
+    
+    # Probability of saying 2
+    p2 <- (sum(dat.tmp[, 1] == 2) / n) * (sum(dat.tmp[, 2] == 2) / n)
+    
+    # Total probability
+    p <- sum(p0, p1, p2)
+    
+    ## Gather information in data frame
+    dat.res <- data.frame(question = var,                                                                   # Variable
+                          n = n,                                                                            # Number of studies
+                          agree = sum(checks),                                                              # Number of agreements
+                          prop_agree = format(round((p_agree <- sum(checks) / n) * 100, 1), nsmall = 1),    # Proportion of agreements
+                          k = format(round((p_agree - p) / (1 - p), 2), nsmall = 2)                         # Cohen's Kappa
+    )
+    
+    # Return data
+    return(dat.res)
+}
+
+# Calculate all Kappa's for SQs
+dat.kap.sq <- do.call("rbind", lapply(colnames(dat.irv[, c(6:25, 29, 33, 37, 41)]), fun.kap))
+
+# Create ordered factor for domain/sq for figure
+dat.kap.sq.tab <- mutate(dat.kap.sq, question = factor(question, levels = c("d1", "sq11", "sq12", "d2", "sq21", "sq22", "sq23", "d3", 
+                                                                            "sq31", "sq32", "sq33", "sq34", "sq35", "sq36", "d4", 
+                                                                            "sq41", "sq42", "sq43", "sq44", "sq45", "sq46", "sq47", 
+                                                                            "sq48", "sq49"),
+                                                       labels = c("Predictors", "SQ 1.1", "SQ 1.2", "Participants", "SQ 2.1", "SQ 2.2.", 
+                                                                  "SQ 2.3.", "Outcomes", "SQ 3.1.", "SQ 3.2.", "SQ 3.3.", "SQ 3.4.", 
+                                                                  "SQ 3.5.", "SQ 3.6.", "Analysis", "SQ 4.1.", "SQ 4.2.", "SQ 4.3.", 
+                                                                  "SQ 4.4.", "SQ 4.5.", "SQ 4.6.", "SQ 4.7.", "SQ 4.8.", "SQ 4.9."))) %>%
+    # Order by question
+    arrange(question)
+
+# Create plot specific data with empty rows between domains
+dat.plt <-
+    # Bind old data and empty data together
+    rbind(
+        # New data
+        data.frame(question = c("d15", "d25", "d35"),
+                   n = NA,
+                   agree = NA,
+                   prop_agree = NA,
+                   k = 0),
+        # Old data
+        dat.kap.sq) %>%
+    # Refactor question
+    mutate(question = factor(question, levels = c("d1", "sq11", "sq12", "d15", "d2", "sq21", "sq22", "sq23", "d25", "d3", 
+                                                  "sq31", "sq32", "sq33", "sq34", "sq35", "sq36", "d35", "d4", "sq41", 
+                                                  "sq42", "sq43", "sq44", "sq45", "sq46", "sq47", "sq48", "sq49"))) %>%
+    # Order by question
+    arrange(question)
+
+# Create figure
+p <- ggplot(data = dat.plt, aes(x = question, y = as.numeric(k))) +
+    # Geometries
+    lapply(c(0.1, 0.2, 0.4, 0.6, 0.8), \(x){geom_hline(yintercept = x, colour = "grey", linetype = "dashed")}) +
+    annotate("text", x = 34.3, y = c(0.1, 0.2, 0.4, 0.6, 0.8, 1) - 0.05, hjust = 1, face = "italic", size = 4, fontface = "italic",
+             label = c("No agreement", "Slight agreement", "Fair agreement", "Moderate agreement", "Substantial agreement", "Near perfect agreement")) +
+    geom_bar(stat = "identity", colour = "#3C6E71", fill = "#3C6E71") + 
+    geom_hline(yintercept = 0, colour = "#333333") +
+    # Scaling
+    scale_y_continuous(limits = c(-1, 1), expand = c(0,0)) +
+    scale_x_discrete(labels = c("Predictors", "SQ 1.1", "SQ 1.2", "", "Participants", "SQ 2.1", "SQ 2.2.", 
+                                        "SQ 2.3.", "", "Outcomes", "SQ 3.1.", "SQ 3.2.", "SQ 3.3.", "SQ 3.4.", 
+                                        "SQ 3.5.", "SQ 3.6.", "", "Analysis", "SQ 4.1.", "SQ 4.2.", "SQ 4.3.", 
+                                        "SQ 4.4.", "SQ 4.5.", "SQ 4.6.", "SQ 4.7.", "SQ 4.8.", "SQ 4.9.")) +
+    # Transformations
+    coord_cartesian(xlim = c(1, 34)) +
+    # Labels
+    labs(title = expression(`Agreement between raters with Cohen's`~kappa), subtitle = "Studies with data on signalling questions") +
+    xlab("Question") + ylab(expression(`Cohen's`~kappa)) +
+    # Aesthetics
+    theme(plot.title = element_text(face = "bold", hjust = 0.5),
+          plot.subtitle = element_text(face = "italic", hjust = 0.5),
+          panel.background = element_blank(),
+          panel.grid = element_blank(),
+          axis.text.x.bottom = element_text(angle = 90, vjust = 0.5, hjust = 1),
+          axis.text = element_text(size = 11),
+          axis.title = element_text(size = 12)) +
+    panel_border(colour = "black")
+
+# Save figure
+ggsave("irv_sq.png", plot = p, path = "C:/Users/rjjanse/OneDrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/figures/", width = 6, height = 6, dpi = 600)
+
+# Change column names
+colnames(dat.kap.sq.tab) <- c("Domain/SQ", "Number of pairs", "Agreement", "% Agreement", "Cohen's Kappa")
+
+# Kable table
+kable(dat.kap.sq.tab, caption = "Cohen's Kappa's for individual signalling questions")
+
+## Sensitivity analysis SQ ----
+# # Create function for sensitivity analysis, leaving one study out and recalculating Kappa's
+# fun.ksa <- function(grp){
+#     # Remove group to exclude
+#     dat.irv <- filter(dat.irv, group != grp)
+#     
+#     # Calculate Cohen's Kappa
+#     dat.kap <- do.call("rbind", lapply(colnames(dat.irv[, c(6:25, 29, 33, 37, 41)]), fun.kap))
+#     
+#     # Add variable to show what group was removed
+#     dat.kap <- mutate(dat.kap, excl = grp)
+# }
+# 
+# # Run sensitivity analysis
+# dat.kap.sa.sq <- do.call("rbind", lapply(unique(dat.irv[["group"]]), fun.ksa))
+# 
+# # Create ordered factor for domain/sq for figure
+# dat.kap.sa.sq <- mutate(dat.kap.sa.sq, question = factor(question, levels = c("d1", "sq11", "sq12", "d2", "sq21", "sq22", "sq23", "d3", 
+#                                                                               "sq31", "sq32", "sq33", "sq34", "sq35", "sq36", "d4", 
+#                                                                               "sq41", "sq42", "sq43", "sq44", "sq45", "sq46", "sq47", 
+#                                                                               "sq48", "sq49"),
+#                                                          labels = c("Predictors", "SQ 1.1", "SQ 1.2", "Participants", "SQ 2.1", "SQ 2.2.", 
+#                                                                     "SQ 2.3.", "Outcomes", "SQ 3.1.", "SQ 3.2.", "SQ 3.3.", "SQ 3.4.", 
+#                                                                     "SQ 3.5.", "SQ 3.6.", "Analysis", "SQ 4.1.", "SQ 4.2.", "SQ 4.3.", 
+#                                                                     "SQ 4.4.", "SQ 4.5.", "SQ 4.6.", "SQ 4.7.", "SQ 4.8.", "SQ 4.9.")))
+# 
+# # Save data
+# save(dat.kap.sa.sq, file = "C:/Users/rjjanse/Onedrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/codes/dataframes/dat_kap_sa_sq.Rdata")
+
+# Load data
+load("C:/Users/rjjanse/Onedrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/codes/dataframes/dat_kap_sa_sq.Rdata")
+
+# Get spread per question (per request of reviewer)
+do.call("rbind", by(as.numeric(dat.kap.sa.sq[["k"]]), dat.kap.sa.sq[["question"]], FUN = summary))%>%
+    # Change to data frame
+    as.data.frame() %>%
+    # Create indicator for question
+    mutate(dsq = rownames(.)) %>%
+    # Remove mean
+    dplyr::select(-Mean) %>%
+    # Change column order
+    relocate(dsq, .before = Min.) %>%
+    # Set column names
+    set_colnames(c("Domain/SQ", "Minimum", "1st quartile", "Median", "3rd quartile", "Maximum")) %>%
+    # Kable table
+    kable(row.names = FALSE)
+
+# # Create figure
+# p <- ggplot(data = dat.kap.sa.sq, aes(x = question, y = as.numeric(k))) +
+#     # Geometries
+#     geom_bar(stat = "identity", colour = "#3C6E71", fill = "#3C6E71") + 
+#     geom_hline(yintercept = 0, colour = "#333333") +
+#     # Scaling
+#     scale_y_continuous(limits = c(-1, 1)) +
+#     # Mutations
+#     facet_wrap(facets = vars(excl)) +
+#     # Labels
+#     labs(title = expression(`Sensitivity analysis for Cohen's`~kappa~`with one study excluded`), subtitle = "Studies with data only on domain questions") +
+#     xlab("Question") + ylab(expression(`Cohen's`~kappa)) +
+#     # Aesthetics
+#     theme(plot.title = element_text(face = "bold", hjust = 0.5),
+#           plot.subtitle = element_text(face = "italic", hjust = 0.5),
+#           panel.background = element_blank(),
+#           panel.grid = element_blank(),
+#           axis.text.x.bottom = element_text(angle = 90, size = 7, vjust = 0.5),
+#           strip.text.x = element_text(size = 6)) +
+#     panel_border(colour = "black")
+# 
+# # Save figure
+# ggsave("sa_irv_sq.png", plot = p, path = "C:/Users/rjjanse/OneDrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/figures/", width = 20, height = 10, dpi = 600)
+
+# Change column names
+colnames(dat.kap.sa.sq) <- c("Domain/SQ", "Number of pairs", "Agreement", "% Agreement", "Cohen's Kappa", "Excluded")
+
+# Kable table
+kable(dat.kap.sa.sq, caption = "Sensitivity analysis for Cohen's Kappa's for individual signalling questions with one study excluded")
+
+# Save data
+save(dat.kap.sa.sq, file = "C:/Users/rjjanse/OneDrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/codes/dataframes/dat_kap_sa_sq.Rdata")
+
+## Domain ----
+# Load checked domain duplicates
+#dat.irv.dom <- read_excel("C:/Users/rjjanse/Onedrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/sheets/Duplicates.xlsx", sheet = "Domain", skip = 3)
+dat.irv.dom <- read_excel("C:/Users/rjjanse/Onedrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/sheets/Duplicates.xlsx", sheet = "Domain", skip = 3)
+
+# Clean data
+dat.irv <- dat.irv.dom %>%
+    # Remove any white rows
+    filter(!is.na(model_id)) %>%
+    # Keep only studies that should be retained
+    filter(`Retain?` == "Yes") %>%
+    # Remove irrelevant columns
+    dplyr::select(-c(`Checked by`, `FT...4`, `FT...10`, n_reviews)) %>%
+    # Some DOIs have two different models, noted in the Comment column with duplicate 1 and 2. Add the duplicate comment to the DOI to be able to differentiate
+    mutate(group = paste0(wrs_identifier, ifelse(grepl("Duplicate", Comment), paste0(" - ", str_extract(Comment, "Duplicate \\d")), ""))) %>%
+    # Remove other irrelevant columns
+    dplyr::select(-c(id:title)) %>%
+    # Arrange on group
+    arrange(group) %>%
+    # Group by group
+    group_by(group) %>%
+    # Calculate amount of rows per group
+    mutate(n_rows = max(row_number())) %>%
+    # Ungroup again
+    ungroup() %>%
+    # Filter any model with only one row
+    filter(n_rows != 1)
+
+# Numbers for results
+print(paste0("Domain studies included in two different reviews: ", (n <- length(unique(filter(dat.irv, n_rows == 2)[["group"]]))), " (", n, " possible pairs)"))
+print(paste0("Domain studies included in three different reviews: ", (n <- length(unique(filter(dat.irv, n_rows == 3)[["group"]]))), " (", n * choose(3, 2), " possible pairs)"))
+print(paste0("Domain studies included in four different reviews: ", (n <- length(unique(filter(dat.irv, n_rows == 4)[["group"]]))), " (", n * choose(4, 2), " possible pairs)"))
+
+# Calculate all Kappa's for SQs
+dat.kap.dom <- do.call("rbind", lapply(colnames(dat.irv[, c(6:9)]), fun.kap))
+
+# Create ordered factor for domain/sq for figure
+dat.kap.dom <- mutate(dat.kap.dom, question2 = factor(question, levels = c("d1", "d2", "d3", "d4")),
+                      question = factor(question, levels = c("d1", "d2", "d3", "d4"),
+                                        labels = c("Predictors", "Participants", "Outcomes", "Analysis"))) %>%
+    # Order by question
+    arrange(question)
+
+# Create figure
+p <- ggplot(data = dat.kap.dom, aes(x = question2, y = as.numeric(k))) +
+    # Geometries
+    lapply(c(0.1, 0.2, 0.4, 0.6, 0.8), \(x){geom_hline(yintercept = x, colour = "grey", linetype = "dashed")}) +
+    annotate("text", x = 5.55, y = c(0.1, 0.2, 0.4, 0.6, 0.8, 1) - 0.05, hjust = 1, face = "italic", size = 4, fontface = "italic",
+             label = c("No agreement", "Slight agreement", "Fair agreement", "Moderate agreement", "Substantial agreement", "Near perfect agreement")) +
+    geom_bar(stat = "identity", colour = "#3C6E71", fill = "#3C6E71") + 
+    geom_hline(yintercept = 0, colour = "#333333") +
+    # Scaling
+    scale_y_continuous(limits = c(-1, 1), expand = c(0, 0)) +
+    scale_x_discrete(labels = c("Predictors", "Participants", "Outcomes", "Analysis")) +
+    # Mutations
+    coord_cartesian(xlim = c(1, 5)) +
+    # Labels
+    labs(title = expression(`Agreement between raters with Cohen's`~kappa), subtitle = "Studies with data on signalling questions") +
+    xlab("Domain") + ylab(expression(`Cohen's`~kappa)) +
+    # Aesthetics
+    theme(plot.title = element_text(face = "bold", hjust = 0.5),
+          plot.subtitle = element_text(face = "italic", hjust = 0.5),
+          panel.background = element_blank(),
+          panel.grid = element_blank(),
+          axis.text.x.bottom = element_text(angle = 90, vjust = 0.5, hjust = 1),
+          axis.text = element_text(size = 11),
+          axis.title = element_text(size = 12)) +
+    panel_border(colour = "black")
+
+# Save figure
+ggsave("irv_dom.png", plot = p, path = "C:/Users/rjjanse/OneDrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/figures/", width = 6, height = 6, dpi = 600)
+
+# Change column names
+colnames(dat.kap.dom) <- c("Domain", "Number of pairs", "Agreement", "% Agreement", "Cohen's Kappa")
+
+# Kable table
+kable(dat.kap.dom, caption = "Cohen's Kappa's for domain questions")
+
+## Sensitivity analysis domain ----
+# # Create function for sensitivity analysis, leaving one study out and recalculating Kappa's
+# fun.ksa <- function(grp){
+#     # Remove group to exclude
+#     dat.irv <- filter(dat.irv, group != grp)
+#     
+#     # Calculate Cohen's Kappa
+#     dat.kap <- do.call("rbind", lapply(colnames(dat.irv[, c(6:9)]), fun.kap))
+#     
+#     # Add variable to show what group was removed
+#     dat.kap <- mutate(dat.kap, excl = grp)
+# }
+# 
+# # Run sensitivity analysis
+# dat.kap.sa.dom <- do.call("rbind", lapply(unique(dat.irv[["group"]]), fun.ksa))
+# 
+# # Create ordered factor for domain/sq for figure
+# dat.kap.sa.dom <- mutate(dat.kap.sa.dom, question = factor(question, levels = c("d1", "d2", "d3", "d4"),
+#                                                            labels = c("Predictors", "Participants", "Outcomes", "Analysis")))
+# 
+# # Save data
+# save(dat.kap.sa.dom, file = "C:/Users/rjjanse/Onedrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/codes/dataframes/dat_kap_sa_dom.Rdata")
+
+# Load data
+load("C:/Users/rjjanse/Onedrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/codes/dataframes/dat_kap_sa_dom.Rdata")
+
+# Get spread per question (per request of reviewer)
+do.call("rbind", by(as.numeric(dat.kap.sa.dom[["k"]]), dat.kap.sa.dom[["question"]], FUN = summary))%>%
+    # Change to data frame
+    as.data.frame() %>%
+    # Create indicator for question
+    mutate(dsq = rownames(.)) %>%
+    # Remove mean
+    dplyr::select(-Mean) %>%
+    # Change column order
+    relocate(dsq, .before = Min.) %>%
+    # Set column names
+    set_colnames(c("Domain", "Minimum", "1st quartile", "Median", "3rd quartile", "Maximum")) %>%
+    # Kable table
+    kable(row.names = FALSE)
+
+# # Create figure
+# p <- ggplot(data = dat.kap.sa.dom, aes(x = question, y = as.numeric(k))) +
+#     # Geometries
+#     geom_bar(stat = "identity", colour = "#3C6E71", fill = "#3C6E71") + 
+#     geom_hline(yintercept = 0, colour = "#333333") +
+#     # Scaling
+#     scale_y_continuous(limits = c(-1, 1)) +
+#     # Mutations
+#     facet_wrap(facets = vars(excl)) +
+#     # Labels
+#     labs(title = expression(`Sensitivity analysis for Cohen's`~kappa~`'s with one study excluded`), subtitle = "Studies with data only on domain level") +
+#     xlab("Question") + ylab(expression(`Cohen's`~kappa)) +
+#     # Aesthetics
+#     theme(plot.title = element_text(face = "bold", hjust = 0.5),
+#           plot.subtitle = element_text(face = "italic", hjust = 0.5),
+#           panel.background = element_blank(),
+#           panel.grid = element_blank(),
+#           axis.text.x.bottom = element_text(angle = 90, size = 7, vjust = 0.5),
+#           strip.text.x = element_text(size = 6)) +
+#     panel_border(colour = "black")
+# 
+# # Save figure
+# ggsave("sa_irv_dom.png", plot = p, path = "C:/Users/rjjanse/OneDrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/figures/", width = 16, height = 10, dpi = 600)
+
+# Change column names
+colnames(dat.kap.sa.dom) <- c("Domain", "Number of pairs", "Agreement", "% Agreement", "Cohen's Kappa", "Excluded")
+
+# Kable table
+kable(dat.kap.sa.dom, caption = "Sensitivity analysis for Cohen's Kappa's for domains with one study excluded")
+
+```
+
+# 6. Sensitivity analysis with duplicates averaged in LOESS over time
+```{r LOESS sens} 
+# Set working direction to figures
+setwd("C:/Users/rjjanse/OneDrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/figures")
+ 
+## Prepare duplicate data
+# Load checked duplicates
+dat.irv.sq <- read_excel("C:/Users/rjjanse/Onedrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/sheets/Duplicates.xlsx", sheet = "SQ", skip = 3)
+
+# Clean data
+dat.irv.sq <- dat.irv.sq %>%
+    # Remove any white rows
+    filter(!is.na(model_id)) %>%
+    # Keep only studies that should be retained
+    filter(`Retain?` == "Yes") %>%
+    # Remove irrelevant columns
+    dplyr::select(-c(`Checked by:`, `Full-text`, FT, n_reviews)) %>%
+    # Remove model with wrong DOI: sq.586 
+    filter(model_id != "sq.586") %>%
+    # Some DOIs have two different models, noted in the Comment column with duplicate 1 and 2. Add the duplicate comment to the DOI to be able to differentiate
+    mutate(group = paste0(wrs_identifier, ifelse(grepl("Duplicate", Comment), paste0(" - ", str_extract(Comment, "Duplicate \\d")), ""))) %>%
+    # Remove other irrelevant columns
+    dplyr::select(-c(id:title)) %>%
+    # Arrange on group
+    arrange(group) %>%
+    # Group by group
+    group_by(group) %>%
+    # Calculate amount of rows per group (n_rows) and mean score for the domains
+    mutate(n_rows = max(row_number()),   # Rows per group
+           d1 = mean(d1),                # Average score domain 1
+           d2 = mean(d2),                # Average score domain 2
+           d3 = mean(d3),                # Average score domain 3
+           d4 = mean(d4)) %>%            # Average score domain 4
+    # Ungroup again
+    ungroup() %>%
+    # Filter any model with only one row
+    filter(n_rows != 1)  %>%
+    # Keep only relevant variables
+    dplyr::select(d1, d2, d3, d4, model_id, group) %>%
+    # Add missing columns
+    left_join(dat.sq %>%
+                  # Select only variables to join
+                  dplyr::select(model_id, wrs_doi, wrs_pmid, dt_study),
+              "model_id")
+
+# Add averaged duplicates with original data with duplicates excluded
+dat.sq.sa <- 
+    rbind(
+        # Remove duplicates from original data
+        dat.sq %>%
+            # Remove any model which is in the duplicates list
+            filter(!(model_id %in% dat.irv.sq[["model_id"]])) %>%
+            # Keep only relevant variables
+            dplyr::select(wrs_doi, wrs_pmid, dt_study, d1, d2, d3, d4, model_id),
+        # Averaged duplicate data
+        dat.irv.sq %>%
+            # Keep only single rows
+            distinct(group, .keep_all = TRUE) %>%
+            # Remove group variable
+            dplyr::select(-group))
+
+# Load checked domain duplicates
+dat.irv.dom <- read_excel("C:/Users/rjjanse/Onedrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/sheets/Duplicates.xlsx", sheet = "Domain", skip = 3)
+
+# Clean data
+dat.irv.dom <- dat.irv.dom %>%
+    # Remove any white rows
+    filter(!is.na(model_id)) %>%
+    # Keep only studies that should be retained
+    filter(`Retain?` == "Yes") %>%
+    # Remove irrelevant columns
+    dplyr::select(-c(`Checked by`, `FT...4`, `FT...10`, n_reviews)) %>%
+    # Some DOIs have two different models, noted in the Comment column with duplicate 1 and 2. Add the duplicate comment to the DOI to be able to differentiate
+    mutate(group = paste0(wrs_identifier, ifelse(grepl("Duplicate", Comment), paste0(" - ", str_extract(Comment, "Duplicate \\d")), ""))) %>%
+    # Remove other irrelevant columns
+    dplyr::select(-c(id:title)) %>%
+    # Arrange on group
+    arrange(group) %>%
+    # Group by group
+    group_by(group) %>%
+    # Calculate amount of rows per group (n_rows) and mean score for the domains
+    mutate(n_rows = max(row_number()),   # Rows per group
+           d1 = mean(d1),                # Average score domain 1
+           d2 = mean(d2),                # Average score domain 2
+           d3 = mean(d3),                # Average score domain 3
+           d4 = mean(d4)) %>%            # Average score domain 4
+    # Ungroup again
+    ungroup() %>%
+    # Filter any model with only one row
+    filter(n_rows != 1) %>%
+    # Keep only relevant variables
+    dplyr::select(d1, d2, d3, d4, model_id, group) %>%
+    # Add missing columns
+    left_join(dat.dom %>%
+                  # Select only variables to join
+                  dplyr::select(model_id, wrs_doi, wrs_pmid, dt_study),
+              "model_id")
+
+# Add averaged duplicates with original data with duplicates excluded
+dat.dom.sa <- 
+    rbind(
+        # Remove duplicates from original data
+        dat.dom %>%
+            # Remove any model which is in the duplicates list
+            filter(!(model_id %in% dat.irv.dom[["model_id"]])) %>%
+            # Keep only relevant variables
+            dplyr::select(wrs_doi, wrs_pmid, dt_study, d1, d2, d3, d4, model_id),
+        # Averaged duplicate data
+        dat.irv.dom %>%
+            # Keep only single rows
+            distinct(group, .keep_all = TRUE) %>%
+            # Remove group variable
+            dplyr::select(-group))
+
+# Prepare data for plot
+dat.plt <- 
+    # Bind domain and signalling question data together
+    rbind(
+        # Take only useful variables from domain data
+        dplyr::select(dat.dom.sa, wrs_doi, wrs_pmid, dt_study, d1:d4, model_id) %>% 
+            # Create indicator that these are domain level only studies
+            mutate(src = "dom"),
+        # Take only useful data from signal question data
+        dplyr::select(dat.sq.sa, wrs_doi, wrs_pmid, dt_study, d1, d2, d3, d4, model_id) %>%
+            # Create indicator that these are signalling question level studies
+            mutate(src = "sq")) %>%
+    # Keep only one version of each within-review study (wrs), based on doi, pmid, and date
+    distinct(wrs_doi, wrs_pmid, dt_study, .keep_all = TRUE) %>%
+    # Change domain scores to long format
+    pivot_longer(d1:d4, names_to = "domain") %>%
+    # Remove missing dates
+    filter(!is.na(dt_study))
+
+## Create figures
+# All-time combined domain SQ
+ggsave("sa2_timetrends_all_ds.png", plot = p.loess(dat.plt, lower_x = NULL, type = "ds"), width = 15, height = 15, dpi = 600) # span = 0.050
+
+# All-time only domain
+ggsave("sa2_timetrends_all_d.png", plot = p.loess(dat.plt, lower_x = NULL, type = "d"), width = 15, height = 15, dpi = 600) # span = 0.054
+
+# All-time only single questions
+ggsave("sa2_timetrends_all_s.png", plot = p.loess(dat.plt, lower_x = NULL, type = "s"), width = 15, height = 15, dpi = 600) # span = 0.482
+
+# Limited time combined domain SQ
+ggsave("sa2_timetrends_lim_ds.png", plot = p.loess(dat.plt, type = "ds"), width = 15, height = 15, dpi = 600) # span = 0.051
+
+# Limited time only domain
+ggsave("sa2_timetrends_lim_d.png", plot = p.loess(dat.plt, type = "d"), width = 15, height = 15, dpi = 600) # span = 0.051
+
+# Limited time only single questions
+ggsave("sa2_timetrends_lim_s.png", plot = p.loess(dat.plt, type = "s"), width = 15, height = 15, dpi = 600) # span = 0.465
+
+```
+
+# 7. Sensitivity analysis with duplicates excluded in LOESS over time
+```{r LOESS sens 2} 
+# Set working direction to figures
+setwd("C:/Users/rjjanse/OneDrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/figures")
+ 
+## Prepare duplicate data
+# Load checked duplicates
+dat.irv.sq <- read_excel("C:/Users/rjjanse/Onedrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/sheets/Duplicates.xlsx", sheet = "SQ", skip = 3)
+
+# Clean data
+dat.irv.sq <- dat.irv.sq %>%
+    # Remove any white rows
+    filter(!is.na(model_id)) %>%
+    # Keep only studies that should be retained
+    filter(`Retain?` == "Yes") %>%
+    # Remove irrelevant columns
+    dplyr::select(-c(`Checked by:`, `Full-text`, FT, n_reviews)) %>%
+    # Remove model with wrong DOI: sq.586 
+    filter(model_id != "sq.586") %>%
+    # Some DOIs have two different models, noted in the Comment column with duplicate 1 and 2. Add the duplicate comment to the DOI to be able to differentiate
+    mutate(group = paste0(wrs_identifier, ifelse(grepl("Duplicate", Comment), paste0(" - ", str_extract(Comment, "Duplicate \\d")), ""))) %>%
+    # Remove other irrelevant columns
+    dplyr::select(-c(id:title)) %>%
+    # Arrange on group
+    arrange(group) %>%
+    # Group by group
+    group_by(group) %>%
+    # Calculate amount of rows per group (n_rows) 
+    mutate(n_rows = max(row_number())) %>%
+    # Ungroup again
+    ungroup() %>%
+    # Filter any model with only one row
+    filter(n_rows != 1)  %>%
+    # Keep only relevant variables
+    dplyr::select(d1, d2, d3, d4, model_id, group) %>%
+    # Add missing columns
+    left_join(dat.sq %>%
+                  # Select only variables to join
+                  dplyr::select(model_id, wrs_doi, wrs_pmid, dt_study),
+              "model_id")
+
+# Keep original data with duplicates excluded
+dat.sq.sa <- 
+    # Remove duplicates from original data
+    dat.sq %>%
+        # Remove any model which is in the duplicates list
+        filter(!(model_id %in% dat.irv.sq[["model_id"]])) %>%
+        # Keep only relevant variables
+        dplyr::select(wrs_doi, wrs_pmid, dt_study, d1, d2, d3, d4, model_id)
+
+# Load checked domain duplicates
+dat.irv.dom <- read_excel("C:/Users/rjjanse/Onedrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/sheets/Duplicates.xlsx", sheet = "Domain", skip = 3)
+
+# Clean data
+dat.irv.dom <- dat.irv.dom %>%
+    # Remove any white rows
+    filter(!is.na(model_id)) %>%
+    # Keep only studies that should be retained
+    filter(`Retain?` == "Yes") %>%
+    # Remove irrelevant columns
+    dplyr::select(-c(`Checked by`, `FT...4`, `FT...10`, n_reviews)) %>%
+    # Some DOIs have two different models, noted in the Comment column with duplicate 1 and 2. Add the duplicate comment to the DOI to be able to differentiate
+    mutate(group = paste0(wrs_identifier, ifelse(grepl("Duplicate", Comment), paste0(" - ", str_extract(Comment, "Duplicate \\d")), ""))) %>%
+    # Remove other irrelevant columns
+    dplyr::select(-c(id:title)) %>%
+    # Arrange on group
+    arrange(group) %>%
+    # Group by group
+    group_by(group) %>%
+    # Calculate amount of rows per group (n_rows)
+    mutate(n_rows = max(row_number())) %>%          
+    # Ungroup again
+    ungroup() %>%
+    # Filter any model with only one row
+    filter(n_rows != 1) %>%
+    # Keep only relevant variables
+    dplyr::select(d1, d2, d3, d4, model_id, group) %>%
+    # Add missing columns
+    left_join(dat.dom %>%
+                  # Select only variables to join
+                  dplyr::select(model_id, wrs_doi, wrs_pmid, dt_study),
+              "model_id")
+
+# Keep original data with duplicates excluded
+dat.dom.sa <- 
+    # Remove duplicates from original data
+    dat.dom %>%
+        # Remove any model which is in the duplicates list
+        filter(!(model_id %in% dat.irv.dom[["model_id"]])) %>%
+        # Keep only relevant variables
+        dplyr::select(wrs_doi, wrs_pmid, dt_study, d1, d2, d3, d4, model_id)
+
+# Prepare data for plot
+dat.plt <- 
+    # Bind domain and signalling question data together
+    rbind(
+        # Take only useful variables from domain data
+        dplyr::select(dat.dom.sa, wrs_doi, wrs_pmid, dt_study, d1:d4, model_id) %>% 
+            # Create indicator that these are domain level only studies
+            mutate(src = "dom"),
+        # Take only useful data from signal question data
+        dplyr::select(dat.sq.sa, wrs_doi, wrs_pmid, dt_study, d1, d2, d3, d4, model_id) %>%
+            # Create indicator that these are signalling question level studies
+            mutate(src = "sq")) %>%
+    # Keep only one version of each within-review study (wrs), based on doi, pmid, and date
+    distinct(wrs_doi, wrs_pmid, dt_study, .keep_all = TRUE) %>%
+    # Change domain scores to long format
+    pivot_longer(d1:d4, names_to = "domain") %>%
+    # Remove missing dates
+    filter(!is.na(dt_study))
+
+## Create figures
+# All-time combined domain SQ
+ggsave("sa3_timetrends_all_ds.png", plot = p.loess(dat.plt, lower_x = NULL, type = "ds"), width = 15, height = 15, dpi = 600) # span = 0.050
+
+# All-time only domain
+ggsave("sa3_timetrends_all_d.png", plot = p.loess(dat.plt, lower_x = NULL, type = "d"), width = 15, height = 15, dpi = 600) # span = 0.054
+
+# All-time only single questions
+ggsave("sa3_timetrends_all_s.png", plot = p.loess(dat.plt, lower_x = NULL, type = "s"), width = 15, height = 15, dpi = 600) # span = 0.482
+
+# Limited time combined domain SQ
+ggsave("sa3_timetrends_lim_ds.png", plot = p.loess(dat.plt, type = "ds"), width = 15, height = 15, dpi = 600) # span = 0.051
+
+# Limited time only domain
+ggsave("sa3_timetrends_lim_d.png", plot = p.loess(dat.plt, type = "d"), width = 15, height = 15, dpi = 600) # span = 0.051
+
+# Limited time only single questions
+ggsave("sa3_timetrends_lim_s.png", plot = p.loess(dat.plt, type = "s"), width = 15, height = 15, dpi = 600) # span = 0.465
+
+```
+
+# 8. Table 1 of studies
+```{r  table1}
+## Create table one with overview of all questions and domains
+# Load data
+load(paste0(path, "dat_main.Rdata")); load(paste0(path, "dat_sq.Rdata")); load(paste0(path, "dat_dom.Rdata"))
+
+# Create function to get overview per question
+fun.tab <- function(var, df){
+    # Get data of interest
+    dat.tmp <- dplyr::select(df, all_of(var))
+    
+    # Count number
+    n <- nrow(dat.tmp)
+    
+    # Calculate number complete
+    ncompl <- nrow(na.omit(dat.tmp))
+    
+    # Calculate proportion complete
+    prop <- ncompl %>%
+        # Divide valids by total
+        divide_by(n) %>%
+        # Round proportion and multiply
+        round(3) %>%
+        # Multiply by 100
+        multiply_by(100) %>%
+        # Force decimals
+        format(nsmall = 1)
+    
+    # Change number to pretty number
+    n <- prettyNum(n, ",")
+    
+    # Change complete number to pretty number
+    ncompl <- prettyNum(ncompl, ",")
+    
+    # Calculate average score
+    avg <- mean(dat.tmp[[1]], na.rm = TRUE) %>%
+        # Round
+        round(2) %>%
+        # Force decimals
+        format(nsmall = 2)
+    
+    # Create output data
+    dat.res <- data.frame(q = var,
+                          n = n,
+                          ncompl = ncompl,
+                          p = prop,
+                          m = avg
+    )
+    
+    # Return data
+    return(dat.res)
+}
+
+# Get information for all signalling questions
+tab.sqs <- do.call("rbind", lapply(c("sq11", "sq12", "sq21", "sq22", "sq23", "sq31", "sq32", "sq33", "sq34", "sq35",
+                                     "sq36", "sq41", "sq42", "sq43", "sq44", "sq45", "sq46", "sq47", "sq48", "sq49"), fun.tab, df = dat.sq))
+
+# Prepare data for domains
+dat.all <-  
+    # Bind domain and signalling question data together
+    rbind(
+        # Take only useful variables from domain data
+        dplyr::select(dat.dom, wrs_doi, wrs_pmid, dt_study, d1:d4, model_id) %>% 
+            # Create indicator that these are domain level only studies
+            mutate(src = "dom"),
+        # Take only useful data from signal question data
+        dplyr::select(dat.sq, wrs_doi, wrs_pmid, dt_study, d1, d2, d3, d4, model_id) %>%
+            # Create indicator that these are signalling question level studies
+            mutate(src = "sq")) 
+
+# Get information for all domains
+tab.dom <- do.call("rbind", lapply(c("d1", "d2", "d3", "d4"), fun.tab, df = dat.all))
+
+# Combine table
+tab.one <- rbind(tab.sqs, tab.dom)
+
+# Clean up table
+tab.one <- tab.one %>%
+    # Change order and label of questions and domains
+    mutate(q = factor(q, levels = c("d1", "sq11", "sq12", "d2", "sq21", "sq22", "sq23", "d3", "sq31", "sq32", "sq33", "sq34", 
+                                           "sq35", "sq36", "d4", "sq41", "sq42", "sq43", "sq44", "sq45", "sq46", "sq47", "sq48", "sq49"),
+                      labels = c("Domain 1: Predictors", "SQ 1.1", "SQ 1.2", "Domain 2: Participants", "SQ 2.1", "SQ 2.2.", "SQ 2.3.", 
+                                 "Domain 3: Outcomes", "SQ 3.1.", "SQ 3.2.", "SQ 3.3.", "SQ 3.4.", "SQ 3.5.", "SQ 3.6.", "Domain 4: Analysis", 
+                                 "SQ 4.1.", "SQ 4.2.", "SQ 4.3.", "SQ 4.4.", "SQ 4.5.", "SQ 4.6.", "SQ 4.7.", "SQ 4.8.", "SQ 4.9."))) %>%
+    # Sort on question
+    arrange(q)
+
+# Change column names
+colnames(tab.one) <- c("Domain/SQ", "Total number of within-review studies", "Within-review studies with extractable data", "Copmleteness of data (%)", "Mean score")
+
+# Kable table
+kable(tab.one, caption = "Table 1")
+
+```
+
+# 9. Table S1 and S2
+```{r supplemental tables 1 and 2}
+# S1: domain level
+# S2: signalling level
+
+# Create table for domain level
+tab.dom <- dat.main %>%
+    # Keep only domain level studies
+    filter(available_level == 2) %>%
+    # Keep only relevant variables
+    dplyr::select(author, year, topic, outcome, population, type, n_dev_sq, n_val_sq) %>%
+    # Change type values to character strings
+    mutate(type = case_when(type == 1 ~ "Diagnostic",
+                            type == 2 ~ "Prognostic",
+                            type == 3 ~ "Both diagnostic and prognostic")) %>%
+    # Sort on author
+    arrange(author, year)
+
+# Change column names
+colnames(tab.dom) <- c("Author", "Year", "Subject", "Outcome", "Population", "Type", "N. dev.", "N. val.")
+
+# Write table to Excel
+write_xlsx(tab.dom, path = "C:/users/rjjanse/OneDrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/sheets/tabs1.xlsx")
+
+# Kable table
+kable(tab.dom, caption = "Supplemental table 1")
+
+# Create table for SQ level
+tab.sq <- dat.main %>%
+    # Keep only SQ level studies
+    filter(available_level == 1) %>%
+    # Keep only relevant variables
+    dplyr::select(author, year, topic, outcome, population, type, n_dev_sq, n_val_sq) %>%
+    # Change type values to character strings
+    mutate(type = case_when(type == 1 ~ "Diagnostic",
+                            type == 2 ~ "Prognostic",
+                            type == 3 ~ "Both diagnostic and prognostic")) %>%
+    # Sort on author and year
+    arrange(author, year)
+
+# Change column names
+colnames(tab.sq) <- c("Author", "Year", "Subject", "Outcome", "Population", "Type", "N. dev.", "N. val.")
+
+# Kable table
+kable(tab.sq, caption = "Supplemental table 2")
+
+```
+
+# 10. Sensitivity analyses splitting development and validation (as requested by reviewers)
+```{r}
+# Set working directionary to figures
+setwd("C:/Users/rjjanse/Onedrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/Figures/")
+
+# Load data
+load(paste0(path, "dat_main.Rdata")); load(paste0(path, "dat_sq.Rdata")); load(paste0(path, "dat_dom.Rdata"))
+
+### Recreate stacked barcharts overall for development and validation stratified
+# Prepare data for plot
+dat.plt <- 
+    # Bind domain and signalling question data together
+    rbind(
+        # Take only useful variables from domain data
+        dplyr::select(dat.dom, wrs_doi, wrs_pmid, type, dt_study, d1:d4) %>% 
+            # Create indicator that these are domain level only studies
+            mutate(src = "dom"),
+        # Take only useful data from signal question data
+        dplyr::select(dat.sq, wrs_doi, wrs_pmid, type, dt_study, d1, d2, d3, d4) %>%
+            # Create indicator that these are signalling question level studies
+            mutate(src = "sq")) %>%
+    # Keep only one version of each within-review study (wrs), based on doi, pmid, and date
+    distinct(wrs_doi, wrs_pmid, dt_study, .keep_all = TRUE) %>%
+    # Change domain scores to long format
+    pivot_longer(d1:d4, names_to = "domain") %>%
+    # Remove missing dates
+    filter(!is.na(dt_study)) %>%
+    # Limit data to end 2021
+    filter(dt_study <= as.Date("2021-12-31")) %>%
+    # Change variables
+    mutate(year = as.numeric(format(dt_study, "%Y")))
+
+## Development
+# Limited time combined domain SQ
+ggsave("sa4_overall_sbc_lim_ds_dev.png", plot = p.sbc(filter(dat.plt, type == 1), type = "ds"), width = 7, height = 7, dpi = 600)
+
+# Limited time only domain
+ggsave("sa4_overall_sbc_lim_d_dev.png", plot = p.sbc(filter(dat.plt, type == 1), type = "d"), width = 7, height = 7, dpi = 600)
+
+## Validation
+# Limited time combined domain SQ
+ggsave("sa4_overall_sbc_lim_ds_val.png", plot = p.sbc(filter(dat.plt, type == 2), type = "ds"), width = 7, height = 7, dpi = 600)
+
+# Limited time only domain
+ggsave("sa4_overall_sbc_lim_d_val.png", plot = p.sbc(filter(dat.plt, type == 2), type = "d"), width = 7, height = 7, dpi = 600)
+
+### Recreate LOESS for development and validation stratified
+# Prepare data for plot
+dat.plt <- 
+    # Bind domain and signalling question data together
+    rbind(
+        # Take only useful variables from domain data
+        dplyr::select(dat.dom, wrs_doi, wrs_pmid, dt_study, type, d1:d4) %>% 
+            # Create indicator that these are domain level only studies
+            mutate(src = "dom"),
+        # Take only useful data from signal question data
+        dplyr::select(dat.sq, wrs_doi, wrs_pmid, dt_study, type, d1, d2, d3, d4) %>%
+            # Create indicator that these are signalling question level studies
+            mutate(src = "sq")) %>%
+    # Keep only one version of each within-review study (wrs), based on doi, pmid, and date
+    distinct(wrs_doi, wrs_pmid, dt_study, .keep_all = TRUE) %>%
+    # Change domain scores to long format
+    pivot_longer(d1:d4, names_to = "domain") %>%
+    # Remove missing dates
+    filter(!is.na(dt_study))
+
+## Development
+# Limited time combined domain SQ
+# Limited time combined domain SQ
+ggsave("sa4_timetrends_lim_ds_dev.png", plot = p.loess(filter(dat.plt, type == 1), type = "ds"), width = 15, height = 15, dpi = 600) # span = 0.107
+
+# Limited time only domain
+ggsave("sa4_main_timetrends_lim_d_dev.png", plot = p.loess(filter(dat.plt, type == 1), type = "d"), width = 15, height = 15, dpi = 600) # span = 0.131
+
+## Validation
+# Limited time combined domain SQ
+ggsave("sa4_timetrends_lim_ds_val.png", plot = p.loess(filter(dat.plt, type == 2), type = "ds"), width = 15, height = 15, dpi = 600) # span = 0.412
+
+# Limited time only domain
+ggsave("sa4_main_timetrends_lim_d_val.png", plot = p.loess(filter(dat.plt, type == 2), type = "d"), width = 15, height = 15, dpi = 600) # span = 0.359
+
+```
