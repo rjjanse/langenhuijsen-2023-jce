@@ -13,7 +13,7 @@ pacman::p_load("dplyr",          # Data manipulation
 )
 
 # Set working directionary
-setwd("C:/Users/rjjanse/Onedrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/")
+setwd("")
 
 # 1. Main data ----
 # Load data
