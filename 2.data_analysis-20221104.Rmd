@@ -76,7 +76,7 @@ message(paste0("Total studies included with data on domain: ", table(dat.main[["
 # 2. Trends over time with LOESS
 ```{r loess}
 # Set working direction to figures
-setwd("C:/Users/rjjanse/OneDrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/figures")
+setwd("")
 
 # Create data frame with key publication information
 # Second 2018-10-22 is actually 2018-10-24, but for data viz changed to 22
@@ -291,7 +291,7 @@ ggsave("main_timetrends_lim_s.png", plot = p.loess(dat.plt, type = "s"), width =
 # 3. Stacked barchart ROB over the years
 ```{r}
 # Set working direction to figures
-setwd("C:/Users/rjjanse/OneDrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/figures")
+setwd("")
 
 # Prepare data for plot
 dat.plt <- 
@@ -450,7 +450,7 @@ ggsave("sbc_lim_s.png", plot = p.sbc(dat.plt, type = "s"), width = 17, height = 
 # 4. Stacked barchart overall
 ```{r}
 # Set working direction to figures
-setwd("C:/Users/rjjanse/OneDrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/figures")
+setwd("")
 
 # Prepare data for plot
 dat.plt <- 
@@ -657,7 +657,7 @@ ggsave("overall_sbc_lim_s.png", plot = p.sbc(dat.plt, type = "s"), width = 7, he
 # dat.sq.check <- do.call("rbind", dat.sq.check)
 # 
 # # Write data to Excel to start checking
-# write_xlsx(dat.sq.check, path = "C:/Users/rjjanse/OneDrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/sheets/irv_sq.xlsx")
+# write_xlsx(dat.sq.check, path = "irv_sq.xlsx")
 # 
 # # Domain level
 # dat.dom.check <- dat.dom %>%
