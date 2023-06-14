@@ -15,7 +15,7 @@ output:
 # Set knitr options
 knitr::opts_chunk$set(echo = FALSE, evaluate = TRUE, tidy = TRUE, cache = FALSE, autodep = TRUE, 
                       warning = FALSE, message = FALSE, out.width = '800px', dpi = 600,
-                      root.dir ="")
+                      root.dir ="C:/Users/rjjanse/OneDrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/codes/results/")
 
 # Load packages
 pacman::p_load("dplyr",      # Data manipulation
@@ -33,7 +33,7 @@ pacman::p_load("dplyr",      # Data manipulation
 )
 
 # Set data path
-path <- ""
+path <- "C:/Users/rjjanse/OneDrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/codes/dataframes/"
      
 # Load data
 load(paste0(path, "dat_main.Rdata")); load(paste0(path, "dat_sq.Rdata")); load(paste0(path, "dat_dom.Rdata"))
@@ -76,7 +76,7 @@ message(paste0("Total studies included with data on domain: ", table(dat.main[["
 # 2. Trends over time with LOESS
 ```{r loess}
 # Set working direction to figures
-setwd("")
+setwd("C:/Users/rjjanse/OneDrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/figures")
 
 # Create data frame with key publication information
 # Second 2018-10-22 is actually 2018-10-24, but for data viz changed to 22
@@ -200,7 +200,7 @@ p.loess <- function(df, lower_x = as.Date("2000-01-01"), upper_x = as.Date("2021
     print(paste0("LOESS fit with span ", round(span, 3)))
     
     # Determine text size
-    txtsize <- 13
+    txtsize <- 14
     
     # Start creating plot
     p <- ggplot(data = dat.tmp, aes(x = dt_study, y = value)) + 
@@ -232,7 +232,7 @@ p.loess <- function(df, lower_x = as.Date("2000-01-01"), upper_x = as.Date("2021
               panel.background = element_blank(),
               panel.grid = element_blank(),
               axis.title.x = element_blank(),
-              axis.text.x = element_text(hjust = 0.2),
+              axis.text.x = element_text(hjust = 0.2, size = txtsize),
               axis.text = element_text(size = txtsize),
               axis.title.y = element_text(size = txtsize),
               strip.text = element_text(size = txtsize)) +
@@ -291,7 +291,7 @@ ggsave("main_timetrends_lim_s.png", plot = p.loess(dat.plt, type = "s"), width =
 # 3. Stacked barchart ROB over the years
 ```{r}
 # Set working direction to figures
-setwd("")
+setwd("C:/Users/rjjanse/OneDrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/figures")
 
 # Prepare data for plot
 dat.plt <- 
@@ -339,7 +339,7 @@ p.sbc <- function(df, lower_x = 2000, type = c("ds", "d", "s")){
     dat.tmp <- filter(dat.tmp, !is.na(value))
     
     # Determine size of text
-    txtsize <- 13
+    txtsize <- 14
     
     if(is.null(lower_x)){
         # If lower_x is NULL, use lowest in data
@@ -450,7 +450,7 @@ ggsave("sbc_lim_s.png", plot = p.sbc(dat.plt, type = "s"), width = 17, height = 
 # 4. Stacked barchart overall
 ```{r}
 # Set working direction to figures
-setwd("")
+setwd("C:/Users/rjjanse/OneDrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/figures")
 
 # Prepare data for plot
 dat.plt <- 
@@ -506,6 +506,9 @@ p.sbc <- function(df, lower_x = 2000, type = c("ds", "d", "s")){
         dat.tmp <- filter(dat.tmp, year >= lower_x)
     }
     
+    # Define txtsize
+    txtsize <- 14
+    
     # Finish data for plot
     dat.tmp <- dat.tmp %>% 
         # Count unique values over groups
@@ -536,6 +539,9 @@ p.sbc <- function(df, lower_x = 2000, type = c("ds", "d", "s")){
               axis.line.y = element_line(),
               panel.background = element_blank(),
               panel.grid = element_blank(),
+              strip.text = element_text(size = txtsize),
+              axis.title = element_text(size = txtsize),
+              axis.text = element_text(size = txtsize - 1),
               legend.position = "bottom") 
     
     # Return plot
@@ -657,7 +663,7 @@ ggsave("overall_sbc_lim_s.png", plot = p.sbc(dat.plt, type = "s"), width = 7, he
 # dat.sq.check <- do.call("rbind", dat.sq.check)
 # 
 # # Write data to Excel to start checking
-# write_xlsx(dat.sq.check, path = "irv_sq.xlsx")
+# write_xlsx(dat.sq.check, path = "C:/Users/rjjanse/OneDrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/sheets/irv_sq.xlsx")
 # 
 # # Domain level
 # dat.dom.check <- dat.dom %>%
@@ -718,12 +724,12 @@ ggsave("overall_sbc_lim_s.png", plot = p.sbc(dat.plt, type = "s"), width = 7, he
 # dat.dom.check <- do.call("rbind", dat.dom.check)
 # 
 # # Write data to Excel to start checking
-# write_xlsx(dat.dom.check, path = "irv_dom.xlsx")
+# write_xlsx(dat.dom.check, path = "C:/Users/rjjanse/OneDrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/sheets/irv_dom.xlsx")
 
 ## SQ ----
 # Load checked duplicates
-#dat.irv.sq <- read_excel("Duplicates.xlsx", sheet = "SQ", skip = 3)
-dat.irv.sq <- read_excel("Duplicates.xlsx", sheet = "SQ", skip = 3)
+#dat.irv.sq <- read_excel("C:/Users/rjjanse/Onedrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/sheets/Duplicates.xlsx", sheet = "SQ", skip = 3)
+dat.irv.sq <- read_excel("C:/Users/rjjanse/Onedrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/sheets/Duplicates.xlsx", sheet = "SQ", skip = 3)
 
 # Clean data
 dat.irv <- dat.irv.sq %>%
@@ -922,12 +928,12 @@ p <- ggplot(data = dat.plt, aes(x = question, y = as.numeric(k))) +
           panel.background = element_blank(),
           panel.grid = element_blank(),
           axis.text.x.bottom = element_text(angle = 90, vjust = 0.5, hjust = 1),
-          axis.text = element_text(size = 11),
-          axis.title = element_text(size = 12)) +
+          axis.text = element_text(size = 12),
+          axis.title = element_text(size = 13)) +
     panel_border(colour = "black")
 
 # Save figure
-ggsave("irv_sq.png", plot = p, path = "", width = 6, height = 6, dpi = 600)
+ggsave("irv_sq.png", plot = p, path = "C:/Users/rjjanse/OneDrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/figures/", width = 6, height = 6, dpi = 600)
 
 # Change column names
 colnames(dat.kap.sq.tab) <- c("Domain/SQ", "Number of pairs", "Agreement", "% Agreement", "Cohen's Kappa")
@@ -962,10 +968,10 @@ kable(dat.kap.sq.tab, caption = "Cohen's Kappa's for individual signalling quest
 #                                                                     "SQ 4.4.", "SQ 4.5.", "SQ 4.6.", "SQ 4.7.", "SQ 4.8.", "SQ 4.9.")))
 # 
 # # Save data
-# save(dat.kap.sa.sq, file = "dat_kap_sa_sq.Rdata")
+# save(dat.kap.sa.sq, file = "C:/Users/rjjanse/Onedrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/codes/dataframes/dat_kap_sa_sq.Rdata")
 
 # Load data
-load("Cdat_kap_sa_sq.Rdata")
+load("C:/Users/rjjanse/Onedrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/codes/dataframes/dat_kap_sa_sq.Rdata")
 
 # Get spread per question (per request of reviewer)
 do.call("rbind", by(as.numeric(dat.kap.sa.sq[["k"]]), dat.kap.sa.sq[["question"]], FUN = summary))%>%
@@ -1004,7 +1010,7 @@ do.call("rbind", by(as.numeric(dat.kap.sa.sq[["k"]]), dat.kap.sa.sq[["question"]
 #     panel_border(colour = "black")
 # 
 # # Save figure
-# ggsave("sa_irv_sq.png", plot = p, path = "", width = 20, height = 10, dpi = 600)
+# ggsave("sa_irv_sq.png", plot = p, path = "C:/Users/rjjanse/OneDrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/figures/", width = 20, height = 10, dpi = 600)
 
 # Change column names
 colnames(dat.kap.sa.sq) <- c("Domain/SQ", "Number of pairs", "Agreement", "% Agreement", "Cohen's Kappa", "Excluded")
@@ -1013,12 +1019,12 @@ colnames(dat.kap.sa.sq) <- c("Domain/SQ", "Number of pairs", "Agreement", "% Agr
 kable(dat.kap.sa.sq, caption = "Sensitivity analysis for Cohen's Kappa's for individual signalling questions with one study excluded")
 
 # Save data
-save(dat.kap.sa.sq, file = "dat_kap_sa_sq.Rdata")
+save(dat.kap.sa.sq, file = "C:/Users/rjjanse/OneDrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/codes/dataframes/dat_kap_sa_sq.Rdata")
 
 ## Domain ----
 # Load checked domain duplicates
-#dat.irv.dom <- read_excel("", sheet = "Domain", skip = 3)
-dat.irv.dom <- read_excel("", sheet = "Domain", skip = 3)
+#dat.irv.dom <- read_excel("C:/Users/rjjanse/Onedrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/sheets/Duplicates.xlsx", sheet = "Domain", skip = 3)
+dat.irv.dom <- read_excel("C:/Users/rjjanse/Onedrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/sheets/Duplicates.xlsx", sheet = "Domain", skip = 3)
 
 # Clean data
 dat.irv <- dat.irv.dom %>%
@@ -1080,12 +1086,12 @@ p <- ggplot(data = dat.kap.dom, aes(x = question2, y = as.numeric(k))) +
           panel.background = element_blank(),
           panel.grid = element_blank(),
           axis.text.x.bottom = element_text(angle = 90, vjust = 0.5, hjust = 1),
-          axis.text = element_text(size = 11),
-          axis.title = element_text(size = 12)) +
+          axis.text = element_text(size = 12),
+          axis.title = element_text(size = 13)) +
     panel_border(colour = "black")
 
 # Save figure
-ggsave("irv_dom.png", plot = p, path = "", width = 6, height = 6, dpi = 600)
+ggsave("irv_dom.png", plot = p, path = "C:/Users/rjjanse/OneDrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/figures/", width = 6, height = 6, dpi = 600)
 
 # Change column names
 colnames(dat.kap.dom) <- c("Domain", "Number of pairs", "Agreement", "% Agreement", "Cohen's Kappa")
@@ -1114,10 +1120,10 @@ kable(dat.kap.dom, caption = "Cohen's Kappa's for domain questions")
 #                                                            labels = c("Predictors", "Participants", "Outcomes", "Analysis")))
 # 
 # # Save data
-# save(dat.kap.sa.dom, file = "dat_kap_sa_dom.Rdata")
+# save(dat.kap.sa.dom, file = "C:/Users/rjjanse/Onedrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/codes/dataframes/dat_kap_sa_dom.Rdata")
 
 # Load data
-load("dat_kap_sa_dom.Rdata")
+load("C:/Users/rjjanse/Onedrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/codes/dataframes/dat_kap_sa_dom.Rdata")
 
 # Get spread per question (per request of reviewer)
 do.call("rbind", by(as.numeric(dat.kap.sa.dom[["k"]]), dat.kap.sa.dom[["question"]], FUN = summary))%>%
@@ -1156,7 +1162,7 @@ do.call("rbind", by(as.numeric(dat.kap.sa.dom[["k"]]), dat.kap.sa.dom[["question
 #     panel_border(colour = "black")
 # 
 # # Save figure
-# ggsave("sa_irv_dom.png", plot = p, path = "", width = 16, height = 10, dpi = 600)
+# ggsave("sa_irv_dom.png", plot = p, path = "C:/Users/rjjanse/OneDrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/figures/", width = 16, height = 10, dpi = 600)
 
 # Change column names
 colnames(dat.kap.sa.dom) <- c("Domain", "Number of pairs", "Agreement", "% Agreement", "Cohen's Kappa", "Excluded")
@@ -1169,11 +1175,11 @@ kable(dat.kap.sa.dom, caption = "Sensitivity analysis for Cohen's Kappa's for do
 # 6. Sensitivity analysis with duplicates averaged in LOESS over time
 ```{r LOESS sens} 
 # Set working direction to figures
-setwd("")
+setwd("C:/Users/rjjanse/OneDrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/figures")
  
 ## Prepare duplicate data
 # Load checked duplicates
-dat.irv.sq <- read_excel("Duplicates.xlsx", sheet = "SQ", skip = 3)
+dat.irv.sq <- read_excel("C:/Users/rjjanse/Onedrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/sheets/Duplicates.xlsx", sheet = "SQ", skip = 3)
 
 # Clean data
 dat.irv.sq <- dat.irv.sq %>%
@@ -1228,7 +1234,7 @@ dat.sq.sa <-
             dplyr::select(-group))
 
 # Load checked domain duplicates
-dat.irv.dom <- read_excel("Duplicates.xlsx", sheet = "Domain", skip = 3)
+dat.irv.dom <- read_excel("C:/Users/rjjanse/Onedrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/sheets/Duplicates.xlsx", sheet = "Domain", skip = 3)
 
 # Clean data
 dat.irv.dom <- dat.irv.dom %>%
@@ -1323,11 +1329,11 @@ ggsave("sa2_timetrends_lim_s.png", plot = p.loess(dat.plt, type = "s"), width = 
 # 7. Sensitivity analysis with duplicates excluded in LOESS over time
 ```{r LOESS sens 2} 
 # Set working direction to figures
-setwd("")
+setwd("C:/Users/rjjanse/OneDrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/figures")
  
 ## Prepare duplicate data
 # Load checked duplicates
-dat.irv.sq <- read_excel("Duplicates.xlsx", sheet = "SQ", skip = 3)
+dat.irv.sq <- read_excel("C:/Users/rjjanse/Onedrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/sheets/Duplicates.xlsx", sheet = "SQ", skip = 3)
 
 # Clean data
 dat.irv.sq <- dat.irv.sq %>%
@@ -1371,7 +1377,7 @@ dat.sq.sa <-
         dplyr::select(wrs_doi, wrs_pmid, dt_study, d1, d2, d3, d4, model_id)
 
 # Load checked domain duplicates
-dat.irv.dom <- read_excel("Duplicates.xlsx", sheet = "Domain", skip = 3)
+dat.irv.dom <- read_excel("C:/Users/rjjanse/Onedrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/sheets/Duplicates.xlsx", sheet = "Domain", skip = 3)
 
 # Clean data
 dat.irv.dom <- dat.irv.dom %>%
@@ -1569,7 +1575,7 @@ tab.dom <- dat.main %>%
 colnames(tab.dom) <- c("Author", "Year", "Subject", "Outcome", "Population", "Type", "N. dev.", "N. val.")
 
 # Write table to Excel
-write_xlsx(tab.dom, path = "tabs1.xlsx")
+write_xlsx(tab.dom, path = "C:/users/rjjanse/OneDrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/sheets/tabs1.xlsx")
 
 # Kable table
 kable(tab.dom, caption = "Supplemental table 1")
@@ -1598,7 +1604,7 @@ kable(tab.sq, caption = "Supplemental table 2")
 # 10. Sensitivity analyses splitting development and validation (as requested by reviewers)
 ```{r}
 # Set working directionary to figures
-setwd("")
+setwd("C:/Users/rjjanse/Onedrive - LUMC/Research/Collaborations/Liselotte Langenhuijsen/Figures/")
 
 # Load data
 load(paste0(path, "dat_main.Rdata")); load(paste0(path, "dat_sq.Rdata")); load(paste0(path, "dat_dom.Rdata"))
